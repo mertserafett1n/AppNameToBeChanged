@@ -15,12 +15,17 @@ body {
   background:#f4f6fb;
   color:#111;
   text-align:center;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
 }
 
 .container {
+  width:100%;
   max-width:600px;
-  margin:auto;
   padding:20px;
+  box-sizing:border-box;
 }
 
 .hidden { display:none; }
@@ -75,36 +80,37 @@ button {
 <body>
 <div class="container">
 
-<!-- AYAR EKRANI -->
-<div id="settingsScreen">
-  <h1>N-Back (1–40: 2-back, sonrası 3-back)</h1>
-  <div class="settings">
-    <input id="total" type="number" value="120" min="10" max="500" placeholder="Toplam soru">
-    <input id="showMs" type="number" value="800" min="200" max="5000" placeholder="Gösterim süresi (ms)">
-    <input id="gapMs" type="number" value="400" min="0" max="5000" placeholder="Aralık (ms)">
-    <select id="alphabet">
-      <option value="EN">A-Z</option>
-      <option value="TR">A-Z + ÇĞİÖŞÜ</option>
-    </select>
+  <!-- AYAR EKRANI (sadece başlangıçta ve tekrar oyunda gösterilir) -->
+  <div id="settingsScreen">
+    <h1>N-Back (1–40: 2-back, sonrası 3-back)</h1>
+    <div class="settings">
+      <input id="total" type="number" value="120" min="10" max="500" placeholder="Toplam soru">
+      <input id="showMs" type="number" value="800" min="200" max="5000" placeholder="Gösterim süresi (ms)">
+      <input id="gapMs" type="number" value="400" min="0" max="5000" placeholder="Aralık (ms)">
+      <select id="alphabet">
+        <option value="EN">A-Z</option>
+        <option value="TR">A-Z + ÇĞİÖŞÜ</option>
+      </select>
+    </div>
+    <button class="start" onclick="startGame()">Başlat</button>
   </div>
-  <button class="start" onclick="startGame()">Başlat</button>
-</div>
 
-<!-- OYUN EKRANI -->
-<div id="gameScreen" class="hidden">
-  <div class="letter" id="letter"></div>
-  <button class="yes" onclick="answer(true)">EVET</button>
-  <button class="no" onclick="answer(false)">HAYIR</button>
-  <div class="progress" id="progress"></div>
-</div>
+  <!-- OYUN EKRANI (sadece oyun sırasında gösterilir) -->
+  <div id="gameScreen" class="hidden">
+    <div class="letter" id="letter"></div>
+    <button class="yes" onclick="answer(true)">EVET</button>
+    <button class="no" onclick="answer(false)">HAYIR</button>
+    <!-- İstersen bu progress satırını tamamen silebilirsin -->
+    <div class="progress" id="progress"></div>
+  </div>
 
-<!-- SONUÇ EKRANI -->
-<div id="resultScreen" class="hidden result">
-  <h2>Oyun Bitti</h2>
-  <p id="scoreText"></p>
-  <p id="accuracyText"></p>
-  <button class="start" onclick="resetGame()">Tekrar Oyna</button>
-</div>
+  <!-- SONUÇ EKRANI (sadece oyun bittikten sonra gösterilir) -->
+  <div id="resultScreen" class="hidden result">
+    <h2>Oyun Bitti</h2>
+    <p id="scoreText"></p>
+    <p id="accuracyText"></p>
+    <button class="start" onclick="resetGame()">Tekrar Oyna</button>
+  </div>
 
 </div>
 
@@ -154,7 +160,8 @@ function nextLetter() {
   updateProgress();
 
   setTimeout(() => {
-    letterEl().textContent = ""; // boş bırakıyoruz
+    letterEl().textContent = "";
+
     if (state.awaiting) {
       state.wrong++;
       state.awaiting = false;
@@ -191,7 +198,7 @@ function endGame() {
   resultScreen.classList.remove("hidden");
 
   const totalAnswered = state.correct + state.wrong;
-  const acc = Math.round((state.correct / totalAnswered) * 100);
+  const acc = totalAnswered ? Math.round((state.correct / totalAnswered) * 100) : 0;
 
   scoreText.textContent = "Doğru: " + state.correct + " | Yanlış: " + state.wrong;
   accuracyText.textContent = "Doğruluk: %" + acc;
