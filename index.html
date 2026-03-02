@@ -118,6 +118,9 @@ button {
 const EN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 const TR = "ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ".split("");
 
+// Hedef: yaklaşık %30 gerçek N-back eşleşmesi
+const TARGET_MATCH_RATE = 0.3;
+
 let state = {};
 
 function startGame() {
@@ -131,7 +134,9 @@ function startGame() {
     correct: 0,
     wrong: 0,
     awaiting: false,
-    running: true
+    running: true,
+    showTimeoutId: null,
+    gapTimeoutId: null
   };
 
   settingsScreen.classList.add("hidden");
@@ -141,17 +146,66 @@ function startGame() {
   nextLetter();
 }
 
+// Yardımcı: rasgele harf
+function randomLetter() {
+  return state.alphabet[Math.floor(Math.random() * state.alphabet.length)];
+}
+
+// Yardımcı: bu elde gösterilecek harfi üret
+function generateLetter() {
+  const nBack = state.nBack;
+  const hasHistory = state.seq.length >= nBack;
+
+  // Yeterli geçmiş varsa hedef orana göre bu turu "eşleşme" mi yapalım?
+  let forceMatch = false;
+  if (hasHistory) {
+    forceMatch = Math.random() < TARGET_MATCH_RATE;
+  }
+
+  if (forceMatch) {
+    // N-back eşleşmesi: nBack önceki harfi tekrar göster
+    return state.seq[state.seq.length - nBack];
+  } else {
+    // Eşleşme olmayan: nBack önceki harften farklı bir harf seç
+    if (!hasHistory) {
+      return randomLetter();
+    }
+    const forbidden = state.seq[state.seq.length - nBack];
+    let letter;
+    do {
+      letter = randomLetter();
+    } while (letter === forbidden);
+    return letter;
+  }
+}
+
+function clearTimers() {
+  if (state.showTimeoutId) {
+    clearTimeout(state.showTimeoutId);
+    state.showTimeoutId = null;
+  }
+  if (state.gapTimeoutId) {
+    clearTimeout(state.gapTimeoutId);
+    state.gapTimeoutId = null;
+  }
+}
+
+// Bir sonraki harfi başlat
 function nextLetter() {
   if (!state.running) return;
 
+  // Zaten tüm sorular bittiyse bitir
   if (state.idx >= state.total) {
     endGame();
     return;
   }
 
+  clearTimers();
+
+  // İlk 40 soru 2-back, sonrası 3-back
   state.nBack = state.idx < 40 ? 2 : 3;
 
-  const letter = state.alphabet[Math.floor(Math.random()*state.alphabet.length)];
+  const letter = generateLetter();
   state.seq.push(letter);
   state.idx++;
   state.awaiting = true;
@@ -159,32 +213,48 @@ function nextLetter() {
   letterEl().textContent = letter;
   updateProgress();
 
-  setTimeout(() => {
-    letterEl().textContent = "";
-
-    if (state.awaiting) {
-      state.wrong++;
-      state.awaiting = false;
-    }
-
-    setTimeout(nextLetter, state.gapMs);
+  // Eğer kullanıcı hiç basmazsa, showMs süresi sonunda otomatik yanlış say
+  state.showTimeoutId = setTimeout(() => {
+    if (!state.awaiting) return; // kullanıcı zaten cevapladı
+    state.awaiting = false;
+    state.wrong++;
+    scheduleNext();
   }, state.showMs);
 }
 
-function expectedMatch() {
-  if (state.seq.length <= state.nBack) return false;
-  return state.seq[state.seq.length-1] === state.seq[state.seq.length-1-state.nBack];
+// Bir sonraki eldeye geçişi (gapMs bekleyerek veya direkt) ayarlar
+function scheduleNext() {
+  clearTimers();
+  if (state.gapMs > 0) {
+    state.gapTimeoutId = setTimeout(nextLetter, state.gapMs);
+  } else {
+    nextLetter();
+  }
 }
 
+// Şu anki elde gerçekten N-back eşleşmesi bekleniyor mu?
+function expectedMatch() {
+  const nBack = state.nBack;
+  if (state.seq.length <= nBack) return false;
+  return state.seq[state.seq.length - 1] === state.seq[state.seq.length - 1 - nBack];
+}
+
+// Kullanıcı EVET/HAYIR bastığında
 function answer(userMatch) {
-  if (!state.awaiting) return;
+  if (!state.awaiting || !state.running) return;
 
   state.awaiting = false;
+  clearTimers();
 
-  if (userMatch === expectedMatch()) state.correct++;
-  else state.wrong++;
+  if (userMatch === expectedMatch()) {
+    state.correct++;
+  } else {
+    state.wrong++;
+  }
 
   updateProgress();
+  // İSTEDİĞİN GİBİ: cevap sonrası hemen bir sonraki harfe geç
+  scheduleNext();
 }
 
 function updateProgress() {
@@ -193,6 +263,7 @@ function updateProgress() {
 
 function endGame() {
   state.running = false;
+  clearTimers();
 
   gameScreen.classList.add("hidden");
   resultScreen.classList.remove("hidden");
@@ -205,6 +276,7 @@ function endGame() {
 }
 
 function resetGame() {
+  clearTimers();
   resultScreen.classList.add("hidden");
   settingsScreen.classList.remove("hidden");
 }
