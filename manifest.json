@@ -1,0 +1,9 @@
+{
+  "name": "N-Back (2→3)",
+  "short_name": "N-Back",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "description": "İlk 40 soru 2-back, sonrası 3-back. Evet/Hayır ile oynanır."
+}
