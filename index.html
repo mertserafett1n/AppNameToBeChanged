@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>N-Back (2→3)</title>
+
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+  <style>
+    :root { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #f6f7fb; color:#111; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 18px; }
+    .card { background:#fff; border-radius: 16px; padding: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.06); }
+    h1 { margin: 0 0 10px; font-size: 18px; }
+    .row { display:flex; gap:12px; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 140px; }
+    label { font-size: 12px; color:#444; display:block; margin-bottom:6px; }
+    input, select, button { width:100%; padding: 12px; border-radius: 12px; border:1px solid #ddd; font-size: 16px; background:#fff; }
+    button { border: none; cursor:pointer; }
+    button.primary { background:#111; color:#fff; }
+    button.good { background:#1a7f37; color:#fff; }
+    button.bad { background:#b42318; color:#fff; }
+    button:disabled { opacity: .5; cursor:not-allowed; }
+    .big { font-size: 86px; font-weight: 700; text-align:center; padding: 18px 0; letter-spacing: 2px; }
+    .muted { color:#666; font-size: 13px; }
+    .stats { display:flex; gap:12px; flex-wrap: wrap; }
+    .stat { flex:1; min-width: 140px; background:#fafafa; border:1px solid #eee; border-radius: 14px; padding: 12px; }
+    .stat b { display:block; font-size: 18px; margin-top: 4px; }
+    .hint { margin-top: 10px; font-size: 13px; color:#555; }
+    .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; background:#eef2ff; color:#3730a3; font-size:12px; }
+    .footer { margin-top: 12px; display:flex; gap:12px; flex-wrap: wrap; align-items:center; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>N-Back — ilk 40 soru <span class="pill">2-back</span>, sonra <span class="pill">3-back</span></h1>
+
+      <div class="row" style="margin-top:12px;">
+        <div>
+          <label>Toplam soru</label>
+          <input id="total" type="number" min="10" max="500" value="120" />
+        </div>
+        <div>
+          <label>Gösterim süresi (ms)</label>
+          <input id="showMs" type="number" min="200" max="5000" value="800" />
+        </div>
+        <div>
+          <label>Aralık (ms)</label>
+          <input id="gapMs" type="number" min="0" max="5000" value="400" />
+        </div>
+        <div>
+          <label>Harf seti</label>
+          <select id="alphabet">
+            <option value="EN" selected>A-Z</option>
+            <option value="TR">A-Z + ÇĞİÖŞÜ</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button id="startBtn" class="primary">Başlat</button>
+        <div class="muted">Kontrol: <b>EVET</b> / <b>HAYIR</b> (klavye: ← EVET, → HAYIR)</div>
+      </div>
+
+      <div class="big" id="letter">—</div>
+
+      <div class="row">
+        <button id="yesBtn" class="good" disabled>EVET</button>
+        <button id="noBtn" class="bad" disabled>HAYIR</button>
+      </div>
+
+      <div class="stats" style="margin-top:12px;">
+        <div class="stat">
+          <div class="muted">Soru</div>
+          <b><span id="q">0</span>/<span id="qTotal">0</span></b>
+        </div>
+        <div class="stat">
+          <div class="muted">Mod</div>
+          <b id="mode">—</b>
+        </div>
+        <div class="stat">
+          <div class="muted">Skor</div>
+          <b><span id="correct">0</span> doğru / <span id="wrong">0</span> yanlış</b>
+        </div>
+        <div class="stat">
+          <div class="muted">Doğruluk</div>
+          <b id="acc">—</b>
+        </div>
+      </div>
+
+      <div class="hint">
+        Kural: Gösterilen harf, <b>2 önceki</b> harfle aynı mı? (1–40)<br/>
+        40’tan sonra: Gösterilen harf, <b>3 önceki</b> harfle aynı mı?
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // PWA: service worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+  }
+
+  const els = {
+    total: document.getElementById('total'),
+    showMs: document.getElementById('showMs'),
+    gapMs: document.getElementById('gapMs'),
+    alphabet: document.getElementById('alphabet'),
+    startBtn: document.getElementById('startBtn'),
+    yesBtn: document.getElementById('yesBtn'),
+    noBtn: document.getElementById('noBtn'),
+    letter: document.getElementById('letter'),
+    q: document.getElementById('q'),
+    qTotal: document.getElementById('qTotal'),
+    mode: document.getElementById('mode'),
+    correct: document.getElementById('correct'),
+    wrong: document.getElementById('wrong'),
+    acc: document.getElementById('acc'),
+  };
+
+  const ALPH_EN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  const ALPH_TR = "ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ".split("");
+
+  let state = {
+    running: false,
+    seq: [],
+    idx: 0,
+    total: 0,
+    showMs: 800,
+    gapMs: 400,
+    correct: 0,
+    wrong: 0,
+    awaitingAnswer: false,
+    currentLetter: null,
+    nBack: 2,
+    timers: [],
+  };
+
+  const clearTimers = () => {
+    state.timers.forEach(t => clearTimeout(t));
+    state.timers = [];
+  };
+
+  const setUIRunning = (on) => {
+    els.yesBtn.disabled = !on;
+    els.noBtn.disabled = !on;
+    els.total.disabled = on;
+    els.showMs.disabled = on;
+    els.gapMs.disabled = on;
+    els.alphabet.disabled = on;
+    els.startBtn.textContent = on ? "Bitir" : "Başlat";
+  };
+
+  const updateStats = () => {
+    els.q.textContent = state.idx;
+    els.qTotal.textContent = state.total;
+    els.mode.textContent = state.running ? `${state.nBack}-back` : "—";
+    els.correct.textContent = state.correct;
+    els.wrong.textContent = state.wrong;
+    const answered = state.correct + state.wrong;
+    els.acc.textContent = answered ? `${Math.round((state.correct / answered) * 100)}%` : "—";
+  };
+
+  const pickLetter = () => {
+    const set = (els.alphabet.value === "TR") ? ALPH_TR : ALPH_EN;
+    const i = Math.floor(Math.random() * set.length);
+    return set[i];
+  };
+
+  const expectedIsMatch = () => {
+    const n = state.nBack;
+    if (state.seq.length <= n) return false;
+    return state.currentLetter === state.seq[state.seq.length - 1 - n];
+  };
+
+  const showNext = () => {
+    if (!state.running) return;
+
+    // bitiş
+    if (state.idx >= state.total) {
+      stopGame();
+      els.letter.textContent = "✓";
+      return;
+    }
+
+    // 1–40 => 2-back, 41+ => 3-back
+    state.nBack = (state.idx < 40) ? 2 : 3;
+
+    state.currentLetter = pickLetter();
+    state.seq.push(state.currentLetter);
+    state.idx += 1;
+
+    state.awaitingAnswer = true;
+    updateStats();
+
+    // göster
+    els.letter.textContent = state.currentLetter;
+
+    // süre sonunda harfi gizle
+    const t1 = setTimeout(() => {
+      els.letter.textContent = "·";
+      // Eğer kullanıcı cevap vermediyse, yanlış say
+      if (state.awaitingAnswer) {
+        state.awaitingAnswer = false;
+        state.wrong += 1;
+        updateStats();
+      }
+
+      // boşluk süresi sonra yeni soru
+      const t2 = setTimeout(() => showNext(), state.gapMs);
+      state.timers.push(t2);
+    }, state.showMs);
+
+    state.timers.push(t1);
+  };
+
+  const answer = (userSaysMatch) => {
+    if (!state.running || !state.awaitingAnswer) return;
+    state.awaitingAnswer = false;
+
+    const truth = expectedIsMatch();
+    if (userSaysMatch === truth) state.correct += 1;
+    else state.wrong += 1;
+
+    updateStats();
+  };
+
+  const startGame = () => {
+    clearTimers();
+    state.running = true;
+    state.seq = [];
+    state.idx = 0;
+    state.correct = 0;
+    state.wrong = 0;
+    state.awaitingAnswer = false;
+
+    state.total = clampInt(els.total.value, 10, 500, 120);
+    state.showMs = clampInt(els.showMs.value, 200, 5000, 800);
+    state.gapMs = clampInt(els.gapMs.value, 0, 5000, 400);
+
+    els.qTotal.textContent = state.total;
+    setUIRunning(true);
+    updateStats();
+
+    els.letter.textContent = "—";
+    // küçük gecikme ile başlat
+    const t = setTimeout(showNext, 300);
+    state.timers.push(t);
+  };
+
+  const stopGame = () => {
+    state.running = false;
+    state.awaitingAnswer = false;
+    clearTimers();
+    setUIRunning(false);
+    updateStats();
+  };
+
+  const clampInt = (v, min, max, def) => {
+    const n = parseInt(v, 10);
+    if (Number.isNaN(n)) return def;
+    return Math.max(min, Math.min(max, n));
+  };
+
+  els.startBtn.addEventListener('click', () => {
+    if (state.running) stopGame();
+    else startGame();
+  });
+
+  els.yesBtn.addEventListener('click', () => answer(true));
+  els.noBtn.addEventListener('click', () => answer(false));
+
+  // Klavye: sol = EVET, sağ = HAYIR (iPad/mac)
+  window.addEventListener('keydown', (e) => {
+    if (e.key === "ArrowLeft") answer(true);
+    if (e.key === "ArrowRight") answer(false);
+  });
+
+  updateStats();
+})();
+</script>
+</body>
+</html>
