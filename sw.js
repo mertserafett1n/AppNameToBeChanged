@@ -1,4 +1,4 @@
-const CACHE = "nback-pwa-v4";
+const CACHE = "nback-pwa-v5";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./sw.js"];
 
 self.addEventListener("install", (e) => {
