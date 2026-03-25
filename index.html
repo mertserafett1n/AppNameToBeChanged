@@ -189,6 +189,7 @@ let state = {
   awaiting: false,
   running: false,
   currentCity: null,
+  order: [],
   correct: 0,
   wrong: 0, // toplam yanlış tıklama
   wrongForThisCity: 0,
@@ -216,6 +217,15 @@ const repeatOnWrong = document.getElementById("repeatOnWrong");
 
 const scoreText = document.getElementById("scoreText");
 const accuracyText = document.getElementById("accuracyText");
+
+function shuffle(arr) {
+  // Fisher-Yates shuffle (in-place)
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 
 function populateVoices() {
   if (!("speechSynthesis" in window)) return;
@@ -328,12 +338,12 @@ async function speakCurrentCity() {
 function nextQuestion() {
   if (!state.running) return;
 
-  if (state.idx >= CITIES.length) {
+  if (state.idx >= state.order.length) {
     endGame();
     return;
   }
 
-  state.currentCity = CITIES[state.idx];
+  state.currentCity = state.order[state.idx];
   state.awaiting = true;
   state.wrongForThisCity = 0;
 
@@ -406,6 +416,7 @@ function startGame() {
     awaiting: false,
     running: true,
     currentCity: null,
+    order: shuffle([...CITIES]),
     correct: 0,
     wrong: 0,
     wrongForThisCity: 0,
