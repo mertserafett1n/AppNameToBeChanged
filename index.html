@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>N-Back</title>
+<title>City Quiz</title>
 
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#ffffff" />
@@ -23,7 +23,7 @@ body {
 
 .container {
   width:100%;
-  max-width:600px;
+  max-width:980px;
   padding:20px;
   box-sizing:border-box;
 }
@@ -46,12 +46,12 @@ button {
   border:none;
   border-radius:14px;
   font-size:18px;
-  width:100%;
+  width:auto;
   margin-top:10px;
   cursor:pointer;
 }
 
-.start { background:#111; color:#fff; }
+.start { background:#111; color:#fff; width:100%; }
 .yes { background:#1a7f37; color:#fff; }
 .no { background:#b42318; color:#fff; }
 
@@ -75,36 +75,88 @@ button {
 .result h2 { margin-bottom:10px; }
 .result p { margin:5px 0; }
 
+.prompt {
+  margin-top: 6px;
+  font-size: 16px;
+  color: #222;
+  min-height: 22px;
+}
+
+.cityGrid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 72vh;
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.cityBtn {
+  width: 100%;
+  margin-top: 0;
+  padding: 10px 6px;
+  font-size: 13px;
+  background: #ffffff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.cityBtn.correct {
+  background:#1a7f37;
+  border-color:#1a7f37;
+  color:#fff;
+}
+
+.cityBtn.wrong {
+  background:#b42318;
+  border-color:#b42318;
+  color:#fff;
+}
+
 </style>
 </head>
 <body>
 <div class="container">
 
-  <!-- AYAR EKRANI (sadece başlangıçta ve tekrar oyunda gösterilir) -->
+  <!-- AYAR EKRANI -->
   <div id="settingsScreen">
-    <h1>N-Back</h1>
+    <h1>City Quiz</h1>
     <div class="settings">
-      <input id="total" type="number" value="80" min="10" max="500" placeholder="Toplam soru">
-      <input id="showMs" type="number" value="1600" min="200" max="5000" placeholder="Gösterim süresi (ms)">
-      <input id="gapMs" type="number" value="1200" min="0" max="5000" placeholder="Aralık (ms)">
-      <select id="alphabet">
-        <option value="EN">A-Z</option>
-        <option value="TR">A-Z + ÇĞİÖŞÜ</option>
+      <label style="display:flex; align-items:center; justify-content:flex-start; gap:10px; margin-bottom:12px;">
+        <input id="useVoice" type="checkbox" checked />
+        <span>Sesi kullan (Web Speech API)</span>
+      </label>
+
+      <select id="voiceSelect">
+        <option value="auto">Otomatik ses</option>
       </select>
+
+      <input id="speechRate" type="number" value="1.0" step="0.05" min="0.5" max="1.5" placeholder="Konuşma hızı (rate)">
+      <input id="speechPitch" type="number" value="1.0" step="0.05" min="0.0" max="2.0" placeholder="Pitch">
+      <input id="gapAfterAnswerMs" type="number" value="800" min="0" max="5000" placeholder="Bir sonraki soru aralığı (ms)">
+
+      <label style="display:flex; align-items:center; justify-content:flex-start; gap:10px; margin-top:6px; margin-bottom:10px;">
+        <input id="repeatOnWrong" type="checkbox" />
+        <span>Yanlışta tekrar oku</span>
+      </label>
     </div>
     <button class="start" onclick="startGame()">Başlat</button>
+    <div class="progress" style="margin-top:12px; font-size:12px; color:#777;">
+      Not: Bazı tarayıcılarda ses listesi ilk yüklemede hemen gelmeyebilir. Ses seçemiyorsan sayfayı yenile.
+    </div>
   </div>
 
-  <!-- OYUN EKRANI (sadece oyun sırasında gösterilir) -->
+  <!-- OYUN EKRANI -->
   <div id="gameScreen" class="hidden">
-    <div class="letter" id="letter"></div>
-    <button class="yes" onclick="answer(true)">EVET</button>
-    <button class="no" onclick="answer(false)">HAYIR</button>
-    <!-- İstersen bu progress satırını tamamen silebilirsin -->
     <div class="progress" id="progress"></div>
+    <div class="prompt" id="prompt"></div>
+    <div id="cityGrid" class="cityGrid"></div>
+    <div class="progress" id="status"></div>
   </div>
 
-  <!-- SONUÇ EKRANI (sadece oyun bittikten sonra gösterilir) -->
+  <!-- SONUÇ EKRANI -->
   <div id="resultScreen" class="hidden result">
     <h2>Oyun Bitti</h2>
     <p id="scoreText"></p>
@@ -115,175 +167,291 @@ button {
 </div>
 
 <script>
-const EN = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-const TR = "ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ".split("");
+// 65 şehir: görseldeki 13x5 grid'e göre, satır-satır (soldan sağa) okuma sırası.
+const CITIES = [
+  "Amsterdam", "Bishkek", "Houston", "Milan", "Singapore",
+  "Ankara", "Bologna", "Kathmandu", "Montreal", "Stockholm",
+  "Ashgabat", "Bombay", "Kiev", "Moscow", "Stuttgart",
+  "Baghdad", "Boston", "Lagos", "Munich", "Sydney",
+  "Bahrain", "Bremen", "Lisbon", "Paris", "Tashkent",
+  "Baku", "Budapest", "London", "Phuket", "Tokyo",
+  "Bangkok", "Dallas", "Lyon", "Porto", "Toronto",
+  "Basel", "Delhi", "Madrid", "Prague", "Tunis",
+  "Batumi", "Doha", "Malaga", "Riyadh", "Valencia",
+  "Beirut", "Dubai", "Malta", "Rotterdam", "Venice",
+  "Belgrade", "Dublin", "Manchester", "Salzburg", "Vienna",
+  "Berlin", "Hamburg", "Melbourne", "Santiago", "Zagreb",
+  "Bilbao", "Havana", "Miami", "Shanghai", "Zurich"
+];
 
-// Hedef: yaklaşık %30 gerçek N-back eşleşmesi
-const TARGET_MATCH_RATE = 0.3;
+let state = {
+  idx: 0,
+  awaiting: false,
+  running: false,
+  currentCity: null,
+  correct: 0,
+  wrong: 0, // toplam yanlış tıklama
+  wrongForThisCity: 0,
+  firstTryCorrect: 0,
+  cityToButton: new Map(),
+  lastWrongButton: null,
+  voices: []
+};
 
-let state = {};
+const settingsScreen = document.getElementById("settingsScreen");
+const gameScreen = document.getElementById("gameScreen");
+const resultScreen = document.getElementById("resultScreen");
+
+const progress = document.getElementById("progress");
+const promptEl = document.getElementById("prompt");
+const statusEl = document.getElementById("status");
+const cityGrid = document.getElementById("cityGrid");
+
+const useVoice = document.getElementById("useVoice");
+const voiceSelect = document.getElementById("voiceSelect");
+const speechRate = document.getElementById("speechRate");
+const speechPitch = document.getElementById("speechPitch");
+const gapAfterAnswerMs = document.getElementById("gapAfterAnswerMs");
+const repeatOnWrong = document.getElementById("repeatOnWrong");
+
+const scoreText = document.getElementById("scoreText");
+const accuracyText = document.getElementById("accuracyText");
+
+function populateVoices() {
+  if (!("speechSynthesis" in window)) return;
+  const voices = speechSynthesis.getVoices() || [];
+  state.voices = voices;
+
+  const selected = voiceSelect.value;
+  const currentVal = selected && selected !== "auto" ? selected : null;
+
+  const options = ["<option value='auto'>Otomatik ses</option>"];
+  const seen = new Set();
+  for (const v of voices) {
+    const key = `${v.name}::${v.lang}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push(`<option value="${key}">${v.name} (${v.lang})</option>`);
+  }
+
+  voiceSelect.innerHTML = options.join("");
+
+  // Eğer daha önce seçilen ses hâlâ varsa onu geri yükle
+  if (currentVal) {
+    const exists = Array.from(voiceSelect.options).some(o => o.value === currentVal);
+    if (exists) voiceSelect.value = currentVal;
+    return;
+  }
+
+  // Kullanıcı aksanı tercihi için varsayılanı İngilizce (en-*) yap.
+  // (Sesler tarayıcıya göre değiştiği için en iyi eşleşmeyi otomatik seçiyoruz.)
+  const preferredLangs = ["en-US", "en-GB", "en-AU", "en-CA", "en-IN", "en"];
+  let preferred = null;
+  for (const lang of preferredLangs) {
+    if (lang === "en") {
+      preferred = voices.find(v => (v.lang || "").toLowerCase().startsWith("en"));
+      break;
+    }
+    preferred = voices.find(v => (v.lang || "").toLowerCase() === lang.toLowerCase());
+    if (preferred) break;
+  }
+
+  if (preferred) {
+    const key = `${preferred.name}::${preferred.lang}`;
+    const exists = Array.from(voiceSelect.options).some(o => o.value === key);
+    if (exists) voiceSelect.value = key;
+  }
+}
+
+function speak(text) {
+  if (!useVoice.checked) return Promise.resolve();
+  if (!("speechSynthesis" in window)) return Promise.resolve();
+
+  // Önceki konuşmayı iptal et; böylece hızlı tıklamada üst üste binmez.
+  speechSynthesis.cancel();
+
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = Math.max(0.5, Math.min(1.5, parseFloat(speechRate.value) || 1.0));
+  utter.pitch = Math.max(0.0, Math.min(2.0, parseFloat(speechPitch.value) || 1.0));
+  utter.volume = 1;
+
+  utter.lang = "en-US";
+  if (voiceSelect.value && voiceSelect.value !== "auto") {
+    const [name, lang] = voiceSelect.value.split("::");
+    const chosen = state.voices.find(v => v.name === name && v.lang === lang);
+    if (chosen) {
+      utter.voice = chosen;
+      utter.lang = chosen.lang || utter.lang;
+    }
+  }
+
+  return new Promise(resolve => {
+    utter.onend = () => resolve();
+    utter.onerror = () => resolve();
+    speechSynthesis.speak(utter);
+  });
+}
+
+function buildGrid() {
+  cityGrid.innerHTML = "";
+  state.cityToButton = new Map();
+
+  for (const city of CITIES) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "cityBtn";
+    btn.textContent = city;
+    btn.dataset.city = city;
+    cityGrid.appendChild(btn);
+    state.cityToButton.set(city, btn);
+  }
+}
+
+function clearWrongHighlights() {
+  for (const btn of cityGrid.querySelectorAll(".cityBtn.wrong")) {
+    btn.classList.remove("wrong");
+  }
+  state.lastWrongButton = null;
+}
+
+function updateProgress() {
+  progress.textContent = `${state.idx + 1} / ${CITIES.length}`;
+}
+
+async function speakCurrentCity() {
+  if (!state.currentCity) return;
+  promptEl.textContent = "Şimdi dinle, sonra gridden seç:";
+  statusEl.textContent = "";
+  await speak(state.currentCity);
+}
+
+function nextQuestion() {
+  if (!state.running) return;
+
+  if (state.idx >= CITIES.length) {
+    endGame();
+    return;
+  }
+
+  state.currentCity = CITIES[state.idx];
+  state.awaiting = true;
+  state.wrongForThisCity = 0;
+
+  clearWrongHighlights();
+  updateProgress();
+
+  speakCurrentCity();
+}
+
+function handleCityClick(city) {
+  if (!state.running || !state.awaiting) return;
+
+  const btn = state.cityToButton.get(city);
+  if (!btn) return;
+
+  if (city === state.currentCity) {
+    state.awaiting = false;
+    state.correct++;
+
+    if (state.wrongForThisCity === 0) state.firstTryCorrect++;
+
+    btn.classList.remove("wrong");
+    btn.classList.add("correct");
+    statusEl.textContent = "Doğru!";
+
+    const gap = parseInt(gapAfterAnswerMs.value) || 0;
+    setTimeout(() => {
+      state.idx++;
+      nextQuestion();
+    }, gap);
+  } else {
+    state.wrong++;
+    state.wrongForThisCity++;
+
+    if (state.lastWrongButton && state.lastWrongButton !== btn) {
+      state.lastWrongButton.classList.remove("wrong");
+    }
+    btn.classList.add("wrong");
+    state.lastWrongButton = btn;
+
+    statusEl.textContent = "Yanlış. Tekrar dene.";
+
+    if (repeatOnWrong.checked) {
+      // Yanlışta tekrar oku (istersen kapatabilirsin).
+      speak(state.currentCity);
+    }
+  }
+}
+
+function endGame() {
+  state.running = false;
+  state.awaiting = false;
+  speechSynthesis?.cancel?.();
+
+  gameScreen.classList.add("hidden");
+  resultScreen.classList.remove("hidden");
+
+  const total = CITIES.length;
+  const firstTryAcc = total ? Math.round((state.firstTryCorrect / total) * 100) : 0;
+
+  scoreText.textContent = `Toplam şehir: ${total} | İlk denemede doğru: ${state.firstTryCorrect} | Yanlış tıklama: ${state.wrong}`;
+  accuracyText.textContent = `İlk-klik doğruluk: %${firstTryAcc}`;
+  promptEl.textContent = "";
+  statusEl.textContent = "";
+}
 
 function startGame() {
   state = {
-    total: parseInt(total.value),
-    showMs: parseInt(showMs.value),
-    gapMs: parseInt(gapMs.value),
-    alphabet: alphabet.value === "TR" ? TR : EN,
-    seq: [],
     idx: 0,
-    correct: 0,
-    wrong: 0,
     awaiting: false,
     running: true,
-    showTimeoutId: null,
-    gapTimeoutId: null
+    currentCity: null,
+    correct: 0,
+    wrong: 0,
+    wrongForThisCity: 0,
+    firstTryCorrect: 0,
+    cityToButton: new Map(),
+    lastWrongButton: null,
+    voices: state.voices
   };
 
   settingsScreen.classList.add("hidden");
   resultScreen.classList.add("hidden");
   gameScreen.classList.remove("hidden");
 
-  nextLetter();
-}
-
-// Yardımcı: rasgele harf
-function randomLetter() {
-  return state.alphabet[Math.floor(Math.random() * state.alphabet.length)];
-}
-
-// Yardımcı: bu elde gösterilecek harfi üret
-function generateLetter() {
-  const nBack = state.nBack;
-  const hasHistory = state.seq.length >= nBack;
-
-  // Yeterli geçmiş varsa hedef orana göre bu turu "eşleşme" mi yapalım?
-  let forceMatch = false;
-  if (hasHistory) {
-    forceMatch = Math.random() < TARGET_MATCH_RATE;
-  }
-
-  if (forceMatch) {
-    // N-back eşleşmesi: nBack önceki harfi tekrar göster
-    return state.seq[state.seq.length - nBack];
-  } else {
-    // Eşleşme olmayan: nBack önceki harften farklı bir harf seç
-    if (!hasHistory) {
-      return randomLetter();
-    }
-    const forbidden = state.seq[state.seq.length - nBack];
-    let letter;
-    do {
-      letter = randomLetter();
-    } while (letter === forbidden);
-    return letter;
-  }
-}
-
-function clearTimers() {
-  if (state.showTimeoutId) {
-    clearTimeout(state.showTimeoutId);
-    state.showTimeoutId = null;
-  }
-  if (state.gapTimeoutId) {
-    clearTimeout(state.gapTimeoutId);
-    state.gapTimeoutId = null;
-  }
-}
-
-// Bir sonraki harfi başlat
-function nextLetter() {
-  if (!state.running) return;
-
-  // Zaten tüm sorular bittiyse bitir
-  if (state.idx >= state.total) {
-    endGame();
-    return;
-  }
-
-  clearTimers();
-
-  // İlk 40 soru 2-back, sonrası 3-back
-  state.nBack = state.idx < 40 ? 2 : 3;
-
-  const letter = generateLetter();
-  state.seq.push(letter);
-  state.idx++;
-  state.awaiting = true;
-
-  letterEl().textContent = letter;
+  buildGrid();
   updateProgress();
+  promptEl.textContent = "";
+  statusEl.textContent = "Dinlemek için hazır mısın?";
 
-  // Eğer kullanıcı hiç basmazsa, showMs süresi sonunda otomatik yanlış say
-  state.showTimeoutId = setTimeout(() => {
-    if (!state.awaiting) return; // kullanıcı zaten cevapladı
-    state.awaiting = false;
-    state.wrong++;
-    scheduleNext();
-  }, state.showMs);
-}
-
-// Bir sonraki eldeye geçişi (gapMs bekleyerek veya direkt) ayarlar
-function scheduleNext() {
-  clearTimers();
-  if (state.gapMs > 0) {
-    state.gapTimeoutId = setTimeout(nextLetter, state.gapMs);
-  } else {
-    nextLetter();
-  }
-}
-
-// Şu anki elde gerçekten N-back eşleşmesi bekleniyor mu?
-function expectedMatch() {
-  const nBack = state.nBack;
-  if (state.seq.length <= nBack) return false;
-  return state.seq[state.seq.length - 1] === state.seq[state.seq.length - 1 - nBack];
-}
-
-// Kullanıcı EVET/HAYIR bastığında
-function answer(userMatch) {
-  if (!state.awaiting || !state.running) return;
-
-  state.awaiting = false;
-  clearTimers();
-
-  if (userMatch === expectedMatch()) {
-    state.correct++;
-  } else {
-    state.wrong++;
-  }
-
-  updateProgress();
-  // İSTEDİĞİN GİBİ: cevap sonrası hemen bir sonraki harfe geç
-  scheduleNext();
-}
-
-function updateProgress() {
-  progress.textContent = state.idx + " / " + state.total;
-}
-
-function endGame() {
-  state.running = false;
-  clearTimers();
-
-  gameScreen.classList.add("hidden");
-  resultScreen.classList.remove("hidden");
-
-  const totalAnswered = state.correct + state.wrong;
-  const acc = totalAnswered ? Math.round((state.correct / totalAnswered) * 100) : 0;
-
-  scoreText.textContent = "Doğru: " + state.correct + " | Yanlış: " + state.wrong;
-  accuracyText.textContent = "Doğruluk: %" + acc;
+  nextQuestion();
 }
 
 function resetGame() {
-  clearTimers();
+  state.running = false;
+  state.awaiting = false;
+  speechSynthesis?.cancel?.();
+
   resultScreen.classList.add("hidden");
   settingsScreen.classList.remove("hidden");
+  gameScreen.classList.add("hidden");
 }
 
-function letterEl() {
-  return document.getElementById("letter");
-}
+// Grid tıklamalarını tek listener ile yakala
+cityGrid.addEventListener("click", (e) => {
+  const btn = e.target.closest(".cityBtn");
+  if (!btn) return;
+  handleCityClick(btn.dataset.city);
+});
+
+// Sesleri otomatik yükle (bazı tarayıcılarda async)
+window.addEventListener("load", () => {
+  populateVoices();
+  if ("speechSynthesis" in window) {
+    speechSynthesis.onvoiceschanged = populateVoices;
+  }
+});
+
 </script>
 </body>
 </html>
